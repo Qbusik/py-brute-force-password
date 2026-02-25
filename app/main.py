@@ -1,6 +1,6 @@
 import multiprocessing
 import time
-from concurrent.futures import ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from hashlib import sha256
 
 PASSWORDS_TO_BRUTE_FORCE = [
@@ -29,34 +29,55 @@ RANGES = [
     (90_000_000, 100_000_000),
 ]
 
+CHECK_INTERVAL = 10000
+
+manager = None
+stop_event = None
+
 
 def sha256_hash_str(to_hash: str) -> str:
     return sha256(to_hash.encode("utf-8")).hexdigest()
 
 
-def search_password(password_hash, r):
-    for num in range(r[0], r[1]):
-        num = f"{num:08d}"
-        if sha256_hash_str(num) == password_hash:
-            print(f"PASSWORD FOUND: {num} -> {password_hash}")
-            return num
+def search_password(password_hash, r, stop_event):
+    for i, num in enumerate(range(r[0], r[1])):
+
+        if i % CHECK_INTERVAL == 0 and stop_event.is_set():
+            return None
+
+        num_str = f"{num:08d}"
+        if sha256_hash_str(num_str) == password_hash:
+            print(f"PASSWORD FOUND: {num_str} -> {password_hash}")
+            stop_event.set()
+            return num_str
+
     return None
 
 
-def brute_force_password() -> None:
+def brute_force_password(stop_event) -> None:
     for password in PASSWORDS_TO_BRUTE_FORCE:
+        stop_event.clear()
         futures = []
 
         with ProcessPoolExecutor(max(1, multiprocessing.cpu_count() - 2)) as executor:
             for r in RANGES:
-                futures.append(executor.submit(search_password, password, r))
+                futures.append(
+                    executor.submit(search_password, password, r, stop_event)
+                )
 
-        wait(futures)
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    for f in futures:
+                        f.cancel()
+                    break
 
 
 if __name__ == "__main__":
     start_time = time.perf_counter()
-    brute_force_password()
+    manager = multiprocessing.Manager()
+    stop_event = manager.Event()
+    brute_force_password(stop_event)
     end_time = time.perf_counter()
 
     print("Elapsed:", end_time - start_time)

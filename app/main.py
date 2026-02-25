@@ -54,12 +54,13 @@ def search_password(password_hash, r, stop_event):
     return None
 
 
-def brute_force_password(stop_event) -> None:
-    for password in PASSWORDS_TO_BRUTE_FORCE:
-        stop_event.clear()
-        futures = []
+def brute_force_password() -> None:
+    with ProcessPoolExecutor(max(1, multiprocessing.cpu_count() - 2)) as executor:
+        manager = multiprocessing.Manager()
+        for password in PASSWORDS_TO_BRUTE_FORCE:
+            stop_event = manager.Event()
+            futures = []
 
-        with ProcessPoolExecutor(max(1, multiprocessing.cpu_count() - 2)) as executor:
             for r in RANGES:
                 futures.append(
                     executor.submit(search_password, password, r, stop_event)
@@ -75,9 +76,7 @@ def brute_force_password(stop_event) -> None:
 
 if __name__ == "__main__":
     start_time = time.perf_counter()
-    manager = multiprocessing.Manager()
-    stop_event = manager.Event()
-    brute_force_password(stop_event)
+    brute_force_password()
     end_time = time.perf_counter()
 
     print("Elapsed:", end_time - start_time)
